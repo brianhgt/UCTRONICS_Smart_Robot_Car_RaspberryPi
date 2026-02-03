@@ -1,6 +1,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdint.h>
 #include <errno.h>
 #include <string.h>
 #include <wiringPi.h>
@@ -167,11 +168,21 @@ unsigned long  receive_colour_table[4] =
 };
 
 
-
+pthread_mutex_t sock_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int PhaseScratchCmd(unsigned char *buf, int len);
 void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot);
 void ScratchRunModule(unsigned char *buf, int len);
+
+// ---- Serial helpers ----
+void writeHead(void);
+void writeSerial(unsigned char c);
+void writeSerialStr(const char *s);
+void writeEnd(void);
+void sendFloat(float f);
+void sendByte(uint8_t b);
+void callOK(void);
+
 
 
 /* Creates a server socket and listens for a command from the remote.
@@ -257,12 +268,18 @@ int main(int argc, char *argv[])
 
     sleep(0.5);
     GRB_work(3, getColour, getBrightness);
-    n = write(newsockfd, "{\"version\":2}", 13);
+    //Send Scratch Version
+    writeSerialStr("{\"version\":2}");
     client_Connected = 1;
     sleep(0.001);
     bzero(&buffer, BUFFER_SIZE);
     while ((n = read(newsockfd, &buffer, BUFFER_SIZE)) > 0)
     {
+      
+      if (n < 3) continue;
+      
+      if (buffer[0] != 0xff || buffer[1] != 0x55) continue;
+      
       if (buffer[0] == 's') { //0x73
         baseSpeed = buffer[1];
         addLeftSpeed = buffer[2];
@@ -292,24 +309,30 @@ int main(int argc, char *argv[])
 		  getColIndex = (1+getColIndex)%4;
 		  receive_colour_table[getColIndex] = getColour;
 		  previous_time = get_pwm_timestamp();
-	  }  
+	   }  
 		
       } else if (buffer[0] == 'v') {
         printf("Reveive value %d\n", buffer[0]);
-        write(newsockfd, "{\"version\":2}", 13);
+        //Send Scratch Version
+        writeSerialStr("{\"version\":2}");
       }
       else {
-	  	for(count = 0; count <n; count ++){
-			printf("received data %d\r\n",buffer[count]);
-		}
-	  	if (buffer[0] == 0xFF && buffer[1] == 0x55) {
-          PhaseScratchCmd(buffer, n);   // pass FULL packet
-      }else{
-			for (count = 0; count < n; count ++) {
-					  updateCarState(buffer[count]);
-					  updateCarMotion();
-					}
-		}
+         printf("Received data:");
+         for(count = 0; count <n; count ++){
+            printf(" %d", buffer[count]);
+         }
+         printf("\r\n");
+         if (buffer[0] == 0xFF && buffer[1] == 0x55) {
+             printf("==ScratchCmd==\r\n");
+             PhaseScratchCmd((unsigned char *)buffer, n);   // pass FULL packet
+         }
+         else{
+            printf("==Update Car==\r\n");
+            for (count = 0; count < n; count ++) {
+                    updateCarState(buffer[count]);
+                    updateCarMotion();
+            }
+         }
       }
       bzero(&buffer, BUFFER_SIZE);
     }
@@ -325,6 +348,7 @@ int main(int argc, char *argv[])
   printf("ERROR\r\n");
   return 0;
 }
+
 
 /*
 * A function from mbot_firmware.
@@ -370,13 +394,6 @@ void parseData(char *readBuffer[]) {
 }
 */
 
-void writeHead(){
-  writeSerial(0xff);
-  writeSerial(0x55);
-}
-void writeSerial(unsigned char c){
-  write(newsockfd, c, 1);
-}
 
 void *fun1(void *arg) {
   unsigned char cnt = 0;
@@ -627,7 +644,8 @@ int IR_updateCarMotion(void) {
 }
 
 int IR_updateCarState(int command) {
-
+  
+  printf("IR COMMAND: %d\r\n", command);
   if ( command == IR_up || command == IR_up_v2) {
     if (!disWarning)
       carstate.forward = 1;
@@ -750,7 +768,8 @@ int PhaseScratchCmd(unsigned char *buf, int len) {
 }
 */
 int PhaseScratchCmd(unsigned char *buf, int len) {
-    if (len < 7) {
+    if (len < 4) {
+       printf("Packet not fully received yet...\r\n");
        return -1;
     }
 
@@ -758,6 +777,13 @@ int PhaseScratchCmd(unsigned char *buf, int len) {
     // ff 55 len idx action device port [slot] ...
 
     uint8_t pkt_len = buf[2];
+    
+    if (pkt_len + 3 > len) {
+          // Packet not fully received yet
+          printf("Packet not fully received yet...\r\n");
+          return -1;
+    }
+    
     uint8_t idx     = buf[3];
     uint8_t action  = buf[4];
     uint8_t device  = buf[5];
@@ -766,12 +792,14 @@ int PhaseScratchCmd(unsigned char *buf, int len) {
 
     // ---------- SENSOR READ ----------
     if (action == GET) {
+        printf("=Action GET=\r\n");
         ScratchReadSensor(idx, device, port, slot);
         return 0;
     }
 
     // ---------- ACTUATOR / MODULE ----------
     if (action == RUN) {
+        printf("=Action RUN=\r\n");
         ScratchRunModule(buf, len);
         return 0;
     }
@@ -787,6 +815,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     switch (device) {
 
     case ULTRASONIC_SENSOR: {
+        printf("=ULTRASONIC_SENSOR=\r\n");
         fval = disMeasure();
         writeHead();
         writeSerial(idx);
@@ -796,6 +825,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     }
 
     case LINEFOLLOWER: {
+        printf("=LINEFOLLOWER=\r\n");
         int l = GET_GPIO(leftSensor);
         int m = GET_GPIO(middleSensor);
         int r = GET_GPIO(rightSensor);
@@ -809,6 +839,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     }
 
     case DIGITAL: {
+        printf("=DIGITAL=\r\n");
         pinMode(port, INPUT);
         bval = digitalRead(port);
 
@@ -820,6 +851,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     }
 
     case ANALOG: {
+        printf("=ANALOG=\r\n");
         pinMode(port, INPUT);
         fval = analogRead(port);
 
@@ -831,6 +863,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     }
 
     case TIMER: {
+        printf("=TIMER=\r\n");
         fval = millis() / 1000.0f;
 
         writeHead();
@@ -841,6 +874,7 @@ void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot)
     }
 
     default:
+        printf("=default=\r\n");
         // Unsupported sensor — respond with 0
         writeHead();
         writeSerial(idx);
@@ -857,14 +891,24 @@ void ScratchRunModule(unsigned char *buf, int len) {
     uint8_t device = buf[5];
     uint8_t port   = buf[6];
 
+   printf("device = %d\r\n", device);
+   printf("port = %d\r\n", port);
+   
     switch (device) {
 
     case MOTOR: {
+       printf("=MOTOR=\r\n");
         // int16_t speed = (buf[7] << 8) | buf[8];
         // dc.reset(port);
         // dc.run(speed);
         // callOK();
+        if (len < 9) {
+           printf("Illegal Buffer size.\n");
+           return;
+        }
         int16_t speed = (buf[7] << 8) | buf[8];
+        printf("speed = %d\r\n", port);
+        
         carstate.forward = speed > 0;
         carstate.back    = speed < 0;
         baseSpeed = abs(speed);
@@ -873,7 +917,14 @@ void ScratchRunModule(unsigned char *buf, int len) {
     }
 
     case SERVO: {
+       printf("=SERVO=\r\n");
+        if (len < 9) {
+           printf("Illegal Buffer size.\n");
+           return;
+        }
         uint8_t angle = buf[8];
+        printf("angle = %d\r\n", port);
+        
         int pwm = 500 + angle * 11;
         servoCtrl(port == 1 ? servo_1 : servo_2, pwm);
         callOK();
@@ -881,7 +932,12 @@ void ScratchRunModule(unsigned char *buf, int len) {
     }
 
     case RGBLED: {
+        printf("=RGBLED=\r\n");
         int base = (buf[7] == 0 || buf[7] == 1) ? 8 : 7;
+        if (len < base + 3) {
+           printf("Illegal Buffer size.\n");
+           return;
+        }
         uint8_t r = buf[base];
         uint8_t g = buf[base+1];
         uint8_t b = buf[base+2];
@@ -891,9 +947,11 @@ void ScratchRunModule(unsigned char *buf, int len) {
     }
 
     case TONE: {
-        int hz = (buf[7] << 8) | buf[8];
-        int ms = (buf[9] << 8) | buf[10];
-        buzzer.tone(hz, ms);
+        //TODO fix buzzer
+        // int hz = (buf[7] << 8) | buf[8];
+        // int ms = (buf[9] << 8) | buf[10];
+        // buzzer.tone(hz, ms);
+        printf("=TONE=\r\n");
         callOK();
         break;
     }
@@ -909,6 +967,7 @@ void sendFloat(float f);
 void sendByte(uint8_t b);
 void writeEnd(void);
 void callOK(void);
+
 int PhaseScratchCmdLegacy(char command){
 	static int angleA = 1140;
 	static int angleB = 630;
@@ -1693,4 +1752,83 @@ void  INThandler(int sig)
   else
     signal(SIGINT, INThandler);
   getchar(); // Get new line character
+}
+
+////
+////
+
+
+
+void writeHead(){
+  writeSerial(0xff);
+  writeSerial(0x55);
+}
+
+void writeSerial(unsigned char c) {
+    pthread_mutex_lock(&sock_mutex);
+    write(newsockfd, &c, 1);
+    pthread_mutex_unlock(&sock_mutex);
+}
+
+void writeSerialStr(const char *s) {
+   pthread_mutex_lock(&sock_mutex);
+   write(newsockfd, s, strlen(s));
+   pthread_mutex_unlock(&sock_mutex);
+}
+
+void writeEnd(void)
+{
+    writeSerial(0x0d);
+    writeSerial(0x0a);
+}
+
+// void writeEnd(void) {
+    // writeSerial('\n');
+// }
+
+void sendFloat(float f)
+{
+    uint8_t *p = (uint8_t *)&f;
+
+    writeSerial(0x02);   // float type
+    writeSerial(p[0]);
+    writeSerial(p[1]);
+    writeSerial(p[2]);
+    writeSerial(p[3]);
+}
+
+// void sendFloat(float f) {
+    // union {
+        // float f;
+        // uint8_t b[4];
+    // } u;
+    // u.f = f;
+    // for (int i = 0; i < 4; i++)
+        // writeSerial(u.b[i]);
+// }
+
+/*
+void callOK(void)
+{
+    writeHead();
+    writeEnd();
+}
+*/
+
+void sendByte(uint8_t b)
+{
+    writeSerial(0x01);   // byte type
+    writeSerial(b);
+}
+
+// void sendByte(uint8_t b) {
+    // writeSerial(b);
+// }
+
+void callOK(void) {
+    printf("Call OK\r\n");
+    writeHead();
+    writeSerial(0);   // idx = 0
+    sendByte(0);      // OK
+    writeEnd();
 }
