@@ -1,0 +1,273 @@
+
+=UCTRONICS Smart Robot Car Commands Documentation=
+This documentation compiles a list of commands (blocks and functions) from the provided JavaScript extension (UCTRONICS_Smart_Robot_Car.js) and the UI configuration JSON. The commands are categorized based on the UI doc's structure, focusing on usability for models like K0069/K0070/K0072 (UNO Platform) and K0073 (Raspberry Pi Platform).
+Each command includes:
+
+Block Name: The user-friendly name from the UI doc (for visual programming like Scratch).
+Function Called: The underlying JavaScript function from the JS file.
+Parameters: Inputs with types, defaults, and menu options (from menus and values in UI doc).
+Description: Purpose and behavior.
+Example: A usage example, shown as a block-style call (visual) and equivalent JS function call.
+Byte Sequence (Hex Example): The low-level bytes sent over serial, computed using default/example parameters (e.g., pin=9, HIGH=1). Shown in space-separated lowercase hex format (e.g., ff 55 05 00 02 1e 09 01). Based on runPackage (type=02 for actuators), getPackage (type=01 for sensors), or custom sends. Assumes short2array(v) = [v % 256, Math.floor(v / 256)] (little-endian 16-bit split). Note: Bytes start with ff 55 len 00 type params... where len = total bytes after ff 55. For RPi, some use ff 55 cmd (after pop removing high byte=00), others direct without ff 55.
+
+Commands are grouped by platform/section for clarity. Values like directions, notes, and beats are from predefined enums/menus (e.g., directions: {forward:1, backward:2, ...}).
+
+---Used for K0069/K0070/K0072 (UNO Platform)---
+These are Arduino/UNO-based commands for basic I/O, sensors, and robot control.
+
+---Common Blocks---
+
+==runArduinoParameters==
+Block Name: UCTRONICS Program
+Function Called: ext.runArduinoParameters: None
+Description: Runs the main program loop or initializes/response handling. Used as a hat block to start execution.
+Example:
+Block: UCTRONICS Program (place at the top of scripts).
+JS: ext.runArduino();Byte Sequence (Hex Example): None (no send; handles responses).
+
+==getDigitalParameters==
+Block Name: read digital pin %n
+Function Called: ext.getDigitalParameters: pin (number, default: 9)
+Description: Reads the digital state (HIGH/LOW) from a pin. Returns a boolean.
+Example:
+Block: read digital pin 9 → Returns 1 (HIGH) or 0 (LOW).
+JS: ext.getDigital(nextID, 9); (where nextID is a callback ID).
+Byte Sequence (Hex Example): ff 55 04 00 01 1e 09 (device=30=1e, pin=09).
+
+==getAnalogParameters==
+Block Name: read analog pin (A)%n
+Function Called: ext.getAnalogParameters: pin (number, default: 0, prefixed as A0+)
+Description: Reads analog value (0-1023) from an analog pin.
+Example:
+Block: read analog pin (A)0 → Returns e.g., 512.
+JS: ext.getAnalog(nextID, 0);
+Byte Sequence (Hex Example): ff 55 04 00 01 1f 00 (device=31=1f, pin=00).
+
+==getPulseParameters==
+Block Name: read pulse pin %n timeout %n
+Function Called: ext.getPulseParameters: pin (number, default: 13), timeout (number, default: 20000)
+Description: Measures pulse duration on a pin with timeout (in microseconds).
+Example:
+Block: read pulse pin 13 timeout 20000 → Returns pulse length.
+JS: ext.getPulse(nextID, 13, 20000);
+Byte Sequence (Hex Example): ff 55 06 00 01 25 0d 20 4e 00 (device=37=25, pin=0d, timeout=20000=4e20, short2array=20 4e).
+
+==runDigitalParameters==
+Block Name: set digital pin %n output as %d.digital
+Function Called: ext.runDigitalParameters: pin (number, default: 9), level (menu: HIGH/LOW, values: 1/0)
+Description: Sets a digital pin to HIGH or LOW.
+Example:
+Block: set digital pin 9 output as HIGH
+JS: ext.runDigital(9, "HIGH"); or ext.runDigital(9, 1);
+Byte Sequence (Hex Example): ff 55 05 00 02 1e 09 01 (device=30=1e, pin=09, level=01).
+
+==runPwmParameters==
+Block Name: set pwm pin %n output as %d.pwmvalue
+Function Called: ext.runPwmParameters: pin (number, default: 5), pwm (menu: 0/50/100/150/255, default: 0)
+Description: Sets PWM output (0-255) on a pin for motor speed or LED brightness.
+Example:
+Block: set pwm pin 5 output as 150
+JS: ext.runPwm(5, 150);
+Byte Sequence (Hex Example): ff 55 05 00 02 20 05 96 (device=32=20, pin=05, pwm=96).
+
+==runToneParameters==
+Block Name: play tone pin %n on note %d.notes beat %d.beats
+Function Called: ext.runToneParameters: pin (number, default: 9), note (menu: C2 to D8, values: 65-4699), beat (menu: Half/Quarter/etc., values: 500/250/etc.)
+Description: Plays a tone on a buzzer pin for a specified beat duration.
+Example:
+Block: play tone pin 9 on note C4 beat Half
+JS: ext.runTone(9, "C4", "Half"); or ext.runTone(9, 262, 500);
+Byte Sequence (Hex Example): ff 55 08 00 02 22 09 06 01 f4 01 (device=34=22, pin=09, tone=262=06 01, beat=500=f4 01).
+
+==runServoArduino==
+Block Name: set servo pin %n angle as %d.servovalue
+Function Called: ext.runServoArduinoParameters: pin (number, default: 9), angle (menu: 0/45/90/135/180, default: 90)
+Description: Sets servo angle (0-180 degrees) on a pin.
+Example:
+Block: set servo pin 9 angle as 90
+JS: ext.runServoArduino(9, 90);
+Byte Sequence (Hex Example): ff 55 05 00 02 21 09 5a (device=33=21, pin=09, angle=5a).
+
+==serialWrite==
+Block Name: serial write text %s
+Function Called: ext.serialWrite (not defined in provided JS; likely code generation only)
+Parameters: text (string, default: "hello")
+Description: Writes text to serial for debugging/communication.
+Example:
+Block: serial write text "hello"
+JS: (Handled via Serial.println in generated code).
+Byte Sequence (Hex Example): None
+
+==serialAvailable==
+Block Name: serial available bytes
+Function Called: ext.serialAvailable (not defined in provided JS; likely code generation only)
+Parameters: None
+Description: Returns number of available serial bytes.
+Example:
+Block: serial available bytes → Returns e.g., 5.
+JS: (Serial.available() in code).
+Byte Sequence (Hex Example): None 
+
+==serialRead==
+Block Name: serial read byte
+Function Called: ext.serialRead (not defined in provided JS; likely code generation only)
+Parameters: None
+Description: Reads one byte from serial.
+Example:
+Block: serial read byte → Returns byte value.
+JS: (Serial.read() in code).
+Byte Sequence (Hex Example): None
+
+Block Name: read uctronics ultrasonic module
+Function Called: ext.getUltrasonicParameters: None (fixed pins: TRIG A2, ECHO A3)
+Description: Reads distance (cm) from ultrasonic sensor.
+Example:
+Block: read uctronics ultrasonic module → Returns e.g., 10.
+JS: ext.getUltrasonic(nextID);
+Byte Sequence (Hex Example): ff 55 03 00 01 37 (device=55=37, no params).
+
+Block Name: set uctronics robot car %d.direction with speed %d.speed
+Function Called: ext.runRobotCarParameters: direction (menu: forward/backward/left/right/stop, values: 1-5), speed (menu: 100-250, default: 150)
+Description: Controls robot car movement and speed using DC motors.
+Example:
+Block: set uctronics robot car forward with speed 150
+JS: ext.runRobotCar("forward", 150); or ext.runRobotCar(1, 150);
+Byte Sequence (Hex Example): ff 55 06 00 02 36 01 00 96 (device=54=36, direction=1=01 00, speed=96).
+
+Block Name: set uctronics servo module angle %d
+Function Called: ext.runServoParameters: angle (number, default: 90)
+Description: Sets neck servo angle (fixed pin 10).
+Example:
+Block: set uctronics servo module angle 90
+JS: ext.runServo(90);
+Byte Sequence (Hex Example): ff 55 04 00 02 38 5a (device=56=38, angle=5a).
+
+
+---Just support K0070/K0072---
+
+==getirRemoteDat==
+Block Name: read uctronics irRemoteDat
+Function Called: ext.getirRemoteDat (not defined in provided JS; likely code generation only)
+Parameters: None (fixed pin 2)
+Description: Reads IR remote data value (uint32_t). Returns 0 if none available.
+Example:
+Block: read uctronics irRemoteDat → Returns e.g., 12345.
+JS: (getIRval() in code).
+Byte Sequence (Hex Example): None
+
+
+---Raspberry Pi Platform---
+---Used for K0073---
+These are Raspberry Pi-specific commands for robot control via custom protocols.
+
+==runRpiRobotCar==
+Block Name: set RpiRobotCar Run %d.direction
+Function Called: ext.runRpiRobotCarParameters: direction (menu: forward/backward/left/right/stop, values: 1-5)
+Description: Sets the robot car's movement direction.
+Example:
+Block: set RpiRobotCar Run forward
+JS: ext.runRpiRobotCar("forward"); or ext.runRpiRobotCar(1);
+Byte Sequence (Hex Example): ff 55 01 (cmd=01, after short2array=[01,00] and pop).
+
+
+==setRpiRobotCarSpeed==
+Block Name: set RpiRobotCar speed %d.speed, CalibrateL %d CalibrateR %d
+Function Called: ext.setRpiRobotCarSpeedParameters: speed (menu: 100-250, default: 100), calibrateL (number, default: 0), calibrateR (number, default: 0)
+Description: Sets speed and left/right motor calibration (for straight-line adjustment). Sends [0x73, speed, calibrateL, calibrateR].
+Example:
+Block: set RpiRobotCar speed 100, CalibrateL 0 CalibrateR 0
+JS: ext.setRpiRobotCarSpeed(100, 0, 0);
+Byte Sequence (Hex Example): 73 64 00 00 (direct send, no ff 55; 73, speed=64, L=00, R=00).
+
+==setRGBCOLOUR==
+Block Name: set RpiRobotCar's RGB color with G %d, R %d B %d, brightness %d
+Function Called: ext.setRGBCOLOURParameters: g (number, 0-255), r (number, 0-255), b (number, 0-255), br (number, 0-100, default: 50)
+Description: Sets RGB LED color and brightness. Sends [0x63, r, g, b, br]. Note: Parameters are in G-R-B order in block but R-G-B in send.
+Example:
+Block: set RpiRobotCar's RGB color with G 255, R 0 B 0, brightness 50 (green).
+JS: ext.setRGBCOLOUR(0, 255, 0, 50); (R=0, G=255, B=0).
+Byte Sequence (Hex Example): 63 00 ff 00 32 (direct send, no ff 55; 63, r=00, g=ff, b=00, br=32).
+
+==setRpiServo==
+Block Name: set RpiRobotCar Servo %d.servoDirection
+Function Called: ext.setRpiServoParameters: servoDir (menu: S_up/S_down/S_left/S_right, values: 9/10/7/8)
+Description: Sets servo direction (predefined moves).
+Example:
+Block: set RpiRobotCar Servo S_up
+JS: ext.setRpiServo("S_up"); or ext.setRpiServo(9);
+Byte Sequence (Hex Example): ff 55 09 (cmd=09).
+
+==setRpiBeep==
+Block Name: set RpiRobotCar Beep %d.beepSta
+Function Called: ext.setRpiBeepParameters: beepVal (menu: beep_enable/beep_disable, values: 15/16)
+Description: Enables or disables the buzzer beep.
+Example:
+Block: set RpiRobotCar Beep beep_enable
+JS: ext.setRpiBeep("beep_enable"); or ext.setRpiBeep(15);
+Byte Sequence (Hex Example): ff 55 0f (cmd=15=0f).
+
+==setRpiTrackMode==
+Block Name: set RpiRobotCar TrackMode %d.trackSta
+Function Called: ext.setRpiTrackModeParameters: mode (menu: track_start/track_stop, values: 11/12)
+Description: Starts or stops line-tracking mode.
+Example:
+Block: set RpiRobotCar TrackMode track_start
+JS: ext.setRpiTrackMode("track_start"); or ext.setRpiTrackMode(11);
+Byte Sequence (Hex Example): ff 55 0b (cmd=11=0b, after short2array=[0b,00] and pop).
+
+==setRpiAutoAvoid==
+Block Name: set RpiRobotCar Auto Avoid %d.avoidSta
+Function Called: ext.setRpiAutoAvoidParameters: mode (menu: avoid_enable/avoid_disable, values: 17/18)
+Description: Enables or disables automatic obstacle avoidance mode.
+Example:
+Block: set RpiRobotCar Auto Avoid avoid_enable
+JS: ext.setRpiAutoAvoid("avoid_enable"); or ext.setRpiAutoAvoid(17);
+Byte Sequence (Hex Example): ff 55 11 (cmd=17=11, after short2array=[11,00] and pop).
+
+
+=Additional Notes=
+
+Reset All: ext.resetAll(); – Resets the device (not in blocks, but available in JS). Byte Sequence: ff 55 05 (direct send [ff,55,05]).
+Timer Functions: ext.resetTimer(); and ext.getTimer(nextID); – For timing operations. resetTimer: None (local time). getTimer: None (local computation).
+Serial Communication: Baud rate is 115200.
+Enums/Menus: Shared across platforms (e.g., directions, beats). Chinese translations available in UI doc for localization.
+Device Connection: The extension handles serial connection at 115200 baud.
+Firmware/Version: Extension v2.2, firmware v1.1.103. Homepage: http://www.uctronics.com.
+
+This list covers all exposed blocks/functions. For full implementation, refer to the JS file's runPackage/getPackage for byte-level communication. Additional functions in JS (e.g., ext.getDht11TMP, ext.getmicrophone) are not in the UI doc's blockSpecs and thus not listed here, but they follow similar byte patterns (e.g., getDht11TMP: ff 55 04 00 01 34 pin for device=52=34).
+
+
+=Examples=
+
+runArduino:          None                             (no send; handles responses).
+
+getDigital:          ff 55 04 00 01 1e 09             (device=30=0x1e, pin=09).
+getAnalog:           ff 55 04 00 01 1f 00             (device=31=0x1f, pin=00).
+getPulse:            ff 55 06 00 01 25 0d 20 4e 00    (device=37=0x25, pin=0d, timeout=20000=4e20, short2array=20 4e).
+runDigital:          ff 55 05 00 02 1e 09 01          (device=30=0x1e, pin=09, level=01).
+runPwm:              ff 55 05 00 02 20 05 96          (device=32=0x20, pin=05, pwm=96).
+runTone:             ff 55 08 00 02 22 09 06 01 f4 01 (device=34=0x22, pin=09, tone=262=06 01, beat=500=f4 01).
+runServoArduino:     ff 55 05 00 02 21 09 5a          (device=33=0x21, pin=09, angle=5a).
+serialWrite:         None                             (no direct send; for uploaded Arduino code).
+serialAvailable:     None                             (no direct send; for uploaded Arduino code).
+serialRead:          None                             (no direct send; for uploaded Arduino code).
+getUltrasonic:       ff 55 03 00 01 37                (device=55=37, no params).
+runRobotCar:         ff 55 06 00 02 36 01 00 96       (device=54=36, direction=1=01 00, speed=96).
+runServo:            ff 55 04 00 02 38 5a             (device=56=38, angle=5a).
+getirRemoteDat:      None                             (no direct send; for uploaded Arduino code).
+
+runRpiRobotCar:      ff 55 01                         (cmd = 01-05)
+setRpiRobotCarSpeed: 73 64 00 00                      (73 or 's' for speed, speed=64, L=00, R=00).
+setRGBCOLOUR:        63 00 ff 00 32                   (63 or 'c' for color, r=00, g=ff, b=00, br=32).
+setRpiServo:         ff 55 09                         (cmd=09, values: 9/10/7/4).
+setRpiTrackMode:     ff 55 0b                         (cmd=11=0x0b, values: 11/12).
+setRpiSpeed:         ff 55 0d                         (cmd=13=0xod, values: 13/14).
+setRpiTone:          ff 55 0f                         (cmd=15=0xof, values: 15/16).
+setRpiAutoAvoid:     ff 55 11                         (cmd=17=0x11, values: 17/18).
+
+resetAll:            ff 55 05                         (direct send [ff,55,05]).
+resetAll:            ff 55 13                         (cmd=19=0x13).
+
+
+Not working:
+fwd at 150 = ff 55 06 00 02 36 01 00 96

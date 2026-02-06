@@ -67,7 +67,8 @@ unsigned char count;
 
 ////Start mbot_firmware constants
 
-#define ULTRASONIC_SENSOR 1
+//Defined in Smart_Robot_Car_K0072_scratch.ino
+//#define ULTRASONIC_SENSOR 1
 #define TEMPERATURE_SENSOR 2
 #define LIGHT_SENSOR 3
 #define POTENTIONMETER 4
@@ -77,7 +78,8 @@ unsigned char count;
 #define RGBLED 8
 #define SEVSEG 9
 #define MOTOR 10
-#define SERVO 11
+//Defined in Smart_Robot_Car_K0072_scratch.ino
+//#define SERVO 11
 #define ENCODER 12
 #define IR 13
 #define IRREMOTE 14
@@ -106,6 +108,13 @@ unsigned char count;
 #define RUN 2
 #define RESET 4
 #define START 5
+
+////
+
+//Defined in Smart_Robot_Car_K0072_scratch.ino
+#define ROBOTCAR 54
+#define ULTRASONIC_SENSOR 55
+#define SERVO 56
 
 ////
 
@@ -171,8 +180,11 @@ unsigned long  receive_colour_table[4] =
 pthread_mutex_t sock_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 int PhaseScratchCmd(unsigned char *buf, int len);
+int PhaseScratchSingleCmd(char command);
 void ScratchReadSensor(uint8_t idx, uint8_t device, uint8_t port, uint8_t slot);
 void ScratchRunModule(unsigned char *buf, int len);
+
+void safe_stop(void);
 
 // ---- Serial helpers ----
 void writeHead(void);
@@ -276,9 +288,12 @@ int main(int argc, char *argv[])
     while ((n = read(newsockfd, &buffer, BUFFER_SIZE)) > 0)
     {
       
-      if (n < 3) continue;
+        if (n < 3) {
+            printf("Buffer too small: %d\r\n", n);
+            continue;
+        }
       
-      if (buffer[0] != 0xff || buffer[1] != 0x55) continue;
+      //if (buffer[0] != 0xff || buffer[1] != 0x55) continue;
       
       if (buffer[0] == 's') { //0x73
         baseSpeed = buffer[1];
@@ -311,20 +326,28 @@ int main(int argc, char *argv[])
 		  previous_time = get_pwm_timestamp();
 	   }  
 		
-      } else if (buffer[0] == 'v') {
+      } else if (buffer[0] == 'v') { //0x76
         printf("Reveive value %d\n", buffer[0]);
         //Send Scratch Version
         writeSerialStr("{\"version\":2}");
       }
       else {
          printf("Received data:");
-         for(count = 0; count <n; count ++){
+         for(count = 0; count < n; count ++){
             printf(" %d", buffer[count]);
          }
          printf("\r\n");
          if (buffer[0] == 0xFF && buffer[1] == 0x55) {
              printf("==ScratchCmd==\r\n");
-             PhaseScratchCmd((unsigned char *)buffer, n);   // pass FULL packet
+
+             if (n == 3) {
+                 //Single Command code
+                 PhaseScratchSingleCmd(buffer[2]);
+             }
+             else {
+                 // pass FULL packet
+                 PhaseScratchCmd((unsigned char*)buffer, n);
+             }
          }
          else{
             printf("==Update Car==\r\n");
@@ -333,6 +356,7 @@ int main(int argc, char *argv[])
                     updateCarMotion();
             }
          }
+         printf("==END ScratchCmd==\r\n");
       }
       bzero(&buffer, BUFFER_SIZE);
     }
@@ -348,51 +372,6 @@ int main(int argc, char *argv[])
   printf("ERROR\r\n");
   return 0;
 }
-
-
-/*
-* A function from mbot_firmware.
-*
-*/
-/*
-void parseData(char *readBuffer[]) {
-  int idx = readBuffer[3];
-  //command_index = (uint8_t)idx;
-  int action = readBuffer[4];
-  int device = readBuffer[5];
-  switch(action){
-    case GET:{
-        if(device != ULTRASONIC_SENSOR){
-          writeHead();
-          writeSerial(idx);
-        }
-        readSensor(device);
-        writeEnd();
-     }
-     break;
-     case RUN:{
-       runModule(device);
-       callOK();
-     }
-      break;
-      case RESET:{
-        //reset
-        dc.reset(M1);
-        dc.run(0);
-        dc.reset(M2);
-        dc.run(0);
-        buzzerOff();
-        callOK();
-      }
-     break;
-     case START:{
-        //start
-        callOK();
-      }
-     break;
-  }
-}
-*/
 
 
 void *fun1(void *arg) {
@@ -645,6 +624,10 @@ int IR_updateCarMotion(void) {
 
 int IR_updateCarState(int command) {
   
+    if (command == 0) {
+        return 0;
+    }
+  
   printf("IR COMMAND: %d\r\n", command);
   if ( command == IR_up || command == IR_up_v2) {
     if (!disWarning)
@@ -804,6 +787,7 @@ int PhaseScratchCmd(unsigned char *buf, int len) {
         return 0;
     }
 
+    printf("=END PhaseScratchCmd=\r\n");
     return 0;
 }
 
@@ -963,22 +947,23 @@ void ScratchRunModule(unsigned char *buf, int len) {
 }
 
 
-void sendFloat(float f);
-void sendByte(uint8_t b);
-void writeEnd(void);
-void callOK(void);
-
-int PhaseScratchCmdLegacy(char command){
+int PhaseScratchSingleCmd(char command){
 	static int angleA = 1140;
 	static int angleB = 630;
 
+    printf("PhaseScratchSingleCmd: %d\r\n", command);
+
 	switch (command) {
     case 1: // go forward
+      printf("go_forward\r\n");
+      safe_stop();
       go_forward();
       GRB_work(3, receive_colour_table[2], getBrightness);
       break;
     case 2: //go backward
+      printf("go_back\r\n");
       if (!disWarning) {
+        safe_stop();
        	go_back();
         GRB_work(3, receive_colour_table[0], getBrightness);
       }
@@ -988,12 +973,14 @@ int PhaseScratchCmdLegacy(char command){
 	  carstate.autoAvoid = 0;
       break;
     case 3: //go left
+      safe_stop();
       go_left();
       GRB_work(3, receive_colour_table[3], getBrightness);
       carstate.trackenable = 0;
       carstate.autoAvoid = 0;
       break;
     case 4: //go right
+      safe_stop();
       go_right();
       GRB_work(3, receive_colour_table[1], getBrightness);
       carstate.trackenable = 0;
@@ -1044,10 +1031,10 @@ int PhaseScratchCmdLegacy(char command){
     case 14: 
       carstate.speedDown = 1;
       break;
-    case 15: /* disable track */
+    case 15: /* Tone High */
       digitalWrite(BEEP, HIGH);
       break;
-    case 16: /* disable track */
+    case 16: /* Tone Low */
       digitalWrite(BEEP, LOW);
       break;
     case 17: /*automatic avoidance*/
@@ -1057,18 +1044,26 @@ int PhaseScratchCmdLegacy(char command){
       carstate.autoAvoid = 0;
       break;
     case 19: /*turn off the robot car*/
+      printf("power off\n");
       poweroffFlag = 1;
       exit_UCTRONICS_Robot_Car();
-      printf("power off\n");
       system("sudo poweroff");
       break;
   }
+
+  printf("=END PhaseScratchSingleCmd=\r\n");
   return 0;
+}
+
+void safe_stop(void) {
+    stop();
+    usleep(10000);
 }
 
 /* Updates the struct MotionState of the car.
 */
 int updateCarState(char command) {
+    printf("=updateCarState=\r\n");
   switch (command) {
     case 0: /* left */
       carstate.left = 1;
@@ -1154,6 +1149,7 @@ int updateCarState(char command) {
       carstate.autoAvoid = 0;
       break;
     case 19: /*turn off the robot car*/
+      printf("power off\n");
       poweroffFlag = 1;
       exit_UCTRONICS_Robot_Car();
       printf("power off\n");
